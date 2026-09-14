@@ -5,7 +5,7 @@ import fetch from 'node-fetch';
 export async function callGemini({ messages, tools }) {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) throw new Error('GEMINI_API_KEY not set');
-  const model = process.env.GEMINI_MODEL || 'gemini-2.0-flash';
+  const model = process.env.GEMINI_MODEL || 'gemini-3.6-flash';
 
   const systemMsg = messages.find((m) => m.role === 'system');
   const rest = messages.filter((m) => m.role !== 'system');
