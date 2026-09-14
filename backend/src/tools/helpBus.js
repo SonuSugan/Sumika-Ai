@@ -8,12 +8,14 @@ export const helpBus = new EventEmitter();
 const pending = new Map();
 let nextId = 1;
 
-export function requestHelp({ reason, url, screenshot }) {
+// `kind: 'blocker'` (default) is a CAPTCHA/login pause; `kind: 'review'` carries
+// drafted Q&A for the user to review (and hear read aloud) before submitting.
+export function requestHelp({ reason, url, screenshot, kind = 'blocker', qa }) {
   const id = String(nextId++);
   const promise = new Promise((resolve) => {
     pending.set(id, resolve);
   });
-  helpBus.emit('blocked', { id, reason, url, screenshot });
+  helpBus.emit('blocked', { id, reason, url, screenshot, kind, qa });
   return { id, promise };
 }
 

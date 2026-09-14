@@ -78,6 +78,13 @@ const Orb = styled.button`
     `}
 `;
 
+const OuterWrap = styled.div`
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+`;
+
 const Wrap = styled.div`
   position: relative;
   width: 160px;
@@ -88,11 +95,10 @@ const Wrap = styled.div`
 `;
 
 const Label = styled.div`
-  position: absolute;
-  bottom: -34px;
   font-size: 13px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
+  text-align: center;
   color: ${({ theme }) => theme.colors.textDim};
 `;
 
@@ -107,11 +113,13 @@ const LABELS = {
 export default function VoiceOrb({ state, onClick }) {
   const ringActive = state !== 'idle' && state !== 'muted';
   return (
-    <Wrap>
-      <Ring $active={ringActive} />
-      <Ring2 $active={ringActive} />
-      <Orb $state={state} onClick={onClick} aria-label="Mute or unmute Sumika's mic" />
+    <OuterWrap>
+      <Wrap>
+        <Ring $active={ringActive} />
+        <Ring2 $active={ringActive} />
+        <Orb $state={state} onClick={onClick} aria-label="Mute or unmute Sumika's mic" />
+      </Wrap>
       <Label>{LABELS[state] || 'Always on'}</Label>
-    </Wrap>
+    </OuterWrap>
   );
 }

@@ -5,10 +5,11 @@ import ChatLog from './components/ChatLog.jsx';
 import HelpModal from './components/HelpModal.jsx';
 import Waveform from './components/Waveform.jsx';
 import QuickActions from './components/QuickActions.jsx';
+import ResumeUpload from './components/ResumeUpload.jsx';
 import { useSpeechRecognition } from './hooks/useSpeechRecognition.js';
 import { useSpeechSynthesis } from './hooks/useSpeechSynthesis.js';
 import { useSfx } from './hooks/useSfx.js';
-import { sendMessage, resumeHelp, connectSocket } from './api.js';
+import { sendMessage, resumeHelp, connectSocket, getProfile } from './api.js';
 
 const Screen = styled.div`
   height: 100vh;
@@ -31,6 +32,17 @@ const Panel = styled.div`
   background: ${({ theme }) => theme.colors.panel};
   border: 1px solid ${({ theme }) => theme.colors.panelBorder};
   box-shadow: 0 0 60px rgba(91, 230, 255, 0.08);
+`;
+
+const TitleRow = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 8px;
+`;
+
+const Logo = styled.img`
+  width: 26px;
+  height: 26px;
 `;
 
 const Title = styled.h1`
@@ -85,22 +97,41 @@ const SendButton = styled.button`
 
 const SESSION_ID = 'local-user';
 
+// Voice commands only act when the wake word is present - stops Sumika from
+// reacting to background chatter picked up by the always-on mic. Typed input
+// and the quick-action chips bypass this since those are already deliberate.
+const WAKE_WORD = /\bsumika\b[,.:!?-]?\s*/i;
+
+function extractWakeCommand(transcript) {
+  const match = WAKE_WORD.exec(transcript);
+  if (!match) return null;
+  const afterWake = transcript.slice(match.index + match[0].length).trim();
+  return afterWake || null;
+}
+
 export default function App() {
   const [messages, setMessages] = useState([
-    { role: 'assistant', text: "Hi, I'm Sumika. I'm always listening - just talk, or type below." }
+    { role: 'assistant', text: 'Hi, I\'m Sumika. Say "Sumika" followed by your command, or type below.' }
   ]);
   const [state, setState] = useState('idle');
   const [draft, setDraft] = useState('');
   const [helpInfo, setHelpInfo] = useState(null);
   const [muted, setMuted] = useState(false);
+  const [hasResume, setHasResume] = useState(false);
   const { speak, speaking } = useSpeechSynthesis();
   const sfx = useSfx();
   const wsRef = useRef(null);
 
   useEffect(() => {
+    getProfile()
+      .then((profile) => setHasResume(Boolean(profile?.resumeText)))
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
     const ws = connectSocket((msg) => {
       if (msg.type === 'help_needed') {
-        sfx.playAlert();
+        if (msg.kind !== 'review') sfx.playAlert();
         setHelpInfo(msg);
       }
       if (msg.type === 'tool_event' && msg.status === 'running') {
@@ -136,8 +167,14 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [speak]);
 
+  const handleVoiceResult = useCallback((transcript) => {
+    const command = extractWakeCommand(transcript);
+    if (!command) return; // heard something, but no "Sumika" wake word - ignore
+    handleFinalText(command);
+  }, [handleFinalText]);
+
   const { listening, supported, permissionDenied } = useSpeechRecognition({
-    onResult: handleFinalText,
+    onResult: handleVoiceResult,
     active: !muted && !speaking
   });
 
@@ -166,6 +203,15 @@ export default function App() {
     setHelpInfo(null);
   };
 
+  const handleResumeUploaded = (profile, errorMessage) => {
+    if (errorMessage) {
+      setMessages((prev) => [...prev, { role: 'assistant', text: `Couldn't read that resume: ${errorMessage}` }]);
+      return;
+    }
+    setHasResume(Boolean(profile?.resumeText));
+    setMessages((prev) => [...prev, { role: 'assistant', text: "Got it - I've read your resume and I'll use it for job applications." }]);
+  };
+
   const activeState = muted
     ? 'muted'
     : state === 'thinking' || state === 'speaking'
@@ -179,7 +225,7 @@ export default function App() {
     : permissionDenied
     ? 'Mic permission blocked - allow it in the browser, then reload.'
     : {
-        idle: 'Always listening…',
+        idle: 'Say "Sumika" to give a command',
         muted: 'Mic muted - tap orb to resume',
         listening: 'Listening…',
         thinking: 'Thinking…',
@@ -189,18 +235,22 @@ export default function App() {
   return (
     <Screen>
       <Panel>
-        <Title>SUMIKA</Title>
+        <TitleRow>
+          <Logo src="/favicon.svg" alt="" />
+          <Title>SUMIKA</Title>
+        </TitleRow>
         <VoiceOrb state={activeState} onClick={handleOrbClick} />
         <Waveform active={activeState === 'listening' || activeState === 'speaking'} color={activeState === 'speaking' ? 'magenta' : 'cyan'} />
         <Status>{statusText}</Status>
         <ChatLog messages={messages} />
+        <ResumeUpload hasResume={hasResume} onUploaded={handleResumeUploaded} />
         <QuickActions onPick={handleFinalText} />
         <TextRow onSubmit={handleSubmit}>
           <Input value={draft} onChange={(e) => setDraft(e.target.value)} placeholder="Type a command…" />
           <SendButton type="submit">Send</SendButton>
         </TextRow>
       </Panel>
-      <HelpModal info={helpInfo} onResume={handleResume} />
+      <HelpModal info={helpInfo} onResume={handleResume} speak={speak} />
     </Screen>
   );
 }

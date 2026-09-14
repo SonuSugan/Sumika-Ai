@@ -24,6 +24,23 @@ export function resumeHelp(id) {
   });
 }
 
+export async function getProfile() {
+  const res = await fetch(`${BASE}/api/profile`);
+  if (!res.ok) throw new Error('Failed to load profile');
+  return res.json();
+}
+
+export async function uploadResume(file) {
+  const form = new FormData();
+  form.append('resume', file);
+  const res = await fetch(`${BASE}/api/profile/resume`, { method: 'POST', body: form });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: res.statusText }));
+    throw new Error(err.error || 'Upload failed');
+  }
+  return res.json();
+}
+
 export function connectSocket(onMessage) {
   const wsUrl = BASE
     ? `${BASE.replace(/^http/, 'ws')}/ws`

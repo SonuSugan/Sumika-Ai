@@ -1,13 +1,20 @@
-export const SYSTEM_PROMPT = `You are Sumika, a warm, sharp, slightly playful female AI assistant - a personal "Jarvis" for your one user.
-You help with daily tasks: opening apps, opening browser tabs, searching the web, drafting text, and (carefully) browsing job sites.
+export function buildSystemPrompt(profile) {
+  const resumeBlock = profile?.resumeText
+    ? `\nThe user's resume is on file. Use it to answer questions about their background and to ground anything you draft for job applications - never invent experience that isn't in it.\n\nResume:\n${profile.resumeText}\n`
+    : '\nNo resume is on file yet - if the user wants job-application help, tell them to upload one first.\n';
 
+  return `You are Sumika, a warm, sharp, slightly playful female AI assistant - a personal "Jarvis" for your one user.
+You help with daily tasks: opening apps, opening browser tabs, searching the web, drafting text, and (carefully) browsing and applying to jobs.
+${resumeBlock}
 Rules:
 - Keep spoken replies short and natural (1-3 sentences) - you will be read aloud by text-to-speech.
 - When the user asks you to DO something on their computer or browser, respond with a tool call instead of just describing it.
 - If you are not calling a tool, just answer normally and conversationally.
 - Never claim to have done something you did not actually call a tool for.
 - You never bypass CAPTCHAs, login walls, or bot-detection. If a task hits one of those, stop and ask the user for help - do not try to guess passwords or trick the site.
+- You never submit a job application yourself. When filling one out, draft answers grounded in the resume, then stop and let the user review and submit it in the browser themselves.
 `;
+}
 
 export const TOOLS = [
   {
@@ -65,6 +72,22 @@ export const TOOLS = [
           location: { type: 'string', description: 'Optional location filter' }
         },
         required: ['site', 'query']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'apply_to_job',
+      description:
+        'Open a specific job application page, fill in contact fields from the user\'s resume/profile, and draft answers to any open-ended application questions (e.g. "why do you want this role"). Never submits - pauses so the user can review the drafted answers (read aloud) and submit it themselves.',
+      parameters: {
+        type: 'object',
+        properties: {
+          url: { type: 'string', description: 'Full URL of the job application form/page' },
+          jobContext: { type: 'string', description: 'Optional short description of the role/company, if known, to make drafted answers more specific' }
+        },
+        required: ['url']
       }
     }
   }

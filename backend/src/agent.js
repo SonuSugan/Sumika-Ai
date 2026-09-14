@@ -1,27 +1,46 @@
 import { chat } from './llm/router.js';
-import { SYSTEM_PROMPT, TOOLS } from './persona.js';
+import { buildSystemPrompt, TOOLS } from './persona.js';
 import { openApp, openUrl, webSearch } from './tools/system.js';
 import { browseJobSite } from './tools/browser.js';
+import { applyToJob } from './tools/jobApply.js';
+import { getProfile } from './profile.js';
 
 const TOOL_IMPL = {
   open_app: ({ name }) => openApp(name),
   open_url: ({ url }) => openUrl(url),
   web_search: ({ query }) => webSearch(query),
-  browse_job_site: ({ site, query, location }) => browseJobSite({ site, query, location })
+  browse_job_site: ({ site, query, location }) => browseJobSite({ site, query, location }),
+  apply_to_job: ({ url, jobContext }) => applyToJob({ url, jobContext })
 };
 
 // Keeps a short rolling conversation history per session so Sumika has context.
 const sessions = new Map();
 
-function getHistory(sessionId) {
+// Re-checks the profile on every message (cheap) and refreshes the system
+// prompt's embedded resume if it changed - e.g. after the user re-uploads one
+// mid-session - without losing the rest of the conversation history.
+async function getHistory(sessionId) {
+  const profile = await getProfile().catch(() => null);
+  const profileStamp = profile?.updatedAt ? String(profile.updatedAt) : 'none';
+
   if (!sessions.has(sessionId)) {
-    sessions.set(sessionId, [{ role: 'system', content: SYSTEM_PROMPT }]);
+    sessions.set(sessionId, {
+      profileStamp,
+      messages: [{ role: 'system', content: buildSystemPrompt(profile) }]
+    });
   }
-  return sessions.get(sessionId);
+
+  const session = sessions.get(sessionId);
+  if (session.profileStamp !== profileStamp) {
+    session.profileStamp = profileStamp;
+    session.messages[0] = { role: 'system', content: buildSystemPrompt(profile) };
+  }
+
+  return session.messages;
 }
 
 export async function handleUserMessage(sessionId, text, onToolEvent) {
-  const history = getHistory(sessionId);
+  const history = await getHistory(sessionId);
   history.push({ role: 'user', content: text });
 
   const first = await chat({ messages: history, tools: TOOLS });
