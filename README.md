@@ -43,3 +43,23 @@ Opens the backend on `http://localhost:5175` and the UI on `http://localhost:517
   blocker yourself, then continue.
 - All voice recognition/synthesis happens in the browser for free; no audio is ever
   uploaded anywhere.
+
+## Deploying to the cloud
+
+The frontend (static React build) and backend (Node/Express) can be deployed
+separately - frontend to Vercel, backend to Render:
+
+- **Render**: new Web Service from this repo, root directory `backend`,
+  build command `npm install`, start command `node server.js`. Add your
+  provider API keys as environment variables in the Render dashboard (same
+  names as `.env.example`).
+- **Vercel**: new project from this repo, root directory `frontend`, framework
+  preset Vite. Set `VITE_BACKEND_URL` to your Render service's URL
+  (e.g. `https://sumika-backend.onrender.com`).
+
+**Important**: `open_app`, `open_url`, `web_search`, and `browse_job_site` all
+control the machine Sumika's backend is running on. Deployed to Render, that's
+Render's remote server, not your PC - so those tools reply with a friendly
+"I'm running in the cloud" message instead of doing anything, and only the
+conversational/chat features work. For full PC control (opening apps, browsing
+job sites in a visible window), run the backend locally on your own machine.

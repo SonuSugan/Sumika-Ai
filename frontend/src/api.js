@@ -1,4 +1,7 @@
-const BASE = '';
+// In dev, Vite proxies /api and /ws to the local backend (see vite.config.js),
+// so BASE stays empty. In production (Vercel), the frontend and backend are
+// separate deployments, so VITE_BACKEND_URL points straight at Render.
+const BASE = import.meta.env.VITE_BACKEND_URL || '';
 
 export async function sendMessage(sessionId, message) {
   const res = await fetch(`${BASE}/api/chat`, {
@@ -22,8 +25,10 @@ export function resumeHelp(id) {
 }
 
 export function connectSocket(onMessage) {
-  const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
-  const ws = new WebSocket(`${protocol}://${window.location.host}/ws`);
+  const wsUrl = BASE
+    ? `${BASE.replace(/^http/, 'ws')}/ws`
+    : `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/ws`;
+  const ws = new WebSocket(wsUrl);
   ws.onmessage = (event) => {
     try {
       onMessage(JSON.parse(event.data));

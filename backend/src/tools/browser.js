@@ -18,6 +18,12 @@ const BLOCK_INDICATORS = [
   'input[type="password"]'
 ];
 
+// Render (and most cloud hosts) set this automatically. This tool needs a
+// visible window on YOUR screen for CAPTCHA/login hand-off, which doesn't
+// exist on a remote server, so it no-ops there instead of trying (and failing)
+// to launch a headed browser with nothing to display it on.
+const isCloud = () => Boolean(process.env.RENDER) || process.platform !== 'win32';
+
 let browserInstance = null;
 
 async function getBrowser() {
@@ -44,6 +50,12 @@ async function detectBlocker(page) {
 // Opens a job search, and if it hits a CAPTCHA/login/bot-check, pauses and
 // asks the human (via helpBus -> WebSocket -> popup) to clear it before continuing.
 export async function browseJobSite({ site, query, location }) {
+  if (isCloud()) {
+    return {
+      ok: false,
+      message: "I'm running in the cloud right now, so I can't pop open a browser window on your screen for job search - run Sumika locally on your PC for this."
+    };
+  }
   const key = String(site).toLowerCase();
   const buildUrl = SITE_URLS[key];
   if (!buildUrl) {
