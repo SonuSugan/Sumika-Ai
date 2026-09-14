@@ -17,7 +17,7 @@ const rotate = keyframes`
 
 const Ring = styled.div`
   position: absolute;
-  inset: -14px;
+  inset: -10px;
   border-radius: 50%;
   border: 1px solid ${({ theme }) => theme.colors.cyanSoft};
   ${({ $active }) =>
@@ -29,7 +29,7 @@ const Ring = styled.div`
 `;
 
 const Ring2 = styled(Ring)`
-  inset: -30px;
+  inset: -20px;
   border-color: rgba(255, 91, 214, 0.2);
   ${({ $active }) =>
     $active &&
@@ -82,7 +82,7 @@ const OuterWrap = styled.div`
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 10px;
+  gap: 26px;
 `;
 
 const Wrap = styled.div`

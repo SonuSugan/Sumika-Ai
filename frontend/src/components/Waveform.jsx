@@ -2,14 +2,14 @@ import styled, { css, keyframes } from 'styled-components';
 
 const bounce = (i) => keyframes`
   0%, 100% { height: 6px; }
-  50% { height: ${14 + ((i * 7) % 22)}px; }
+  50% { height: ${12 + ((i * 5) % 16)}px; }
 `;
 
 const Bars = styled.div`
   display: flex;
   align-items: center;
   gap: 4px;
-  height: 30px;
+  height: 32px;
 `;
 
 const Bar = styled.span`
