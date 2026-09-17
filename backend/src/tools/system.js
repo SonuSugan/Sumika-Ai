@@ -1,5 +1,4 @@
 import { exec } from 'node:child_process';
-import open from 'open';
 
 // Render (and most cloud hosts) set this automatically. These tools reach out
 // to a desktop/display that only exists on your own PC, so they no-op gracefully
@@ -66,15 +65,16 @@ export function openApp(name) {
   });
 }
 
+// Unlike open_app/browse_job_site, opening a URL doesn't need OS-level access -
+// the frontend is already running in the user's own browser, wherever the
+// backend itself is hosted. So this just tells the frontend to window.open()
+// it client-side instead of trying (and failing, in the cloud) to launch a
+// browser on the server's machine.
 export async function openUrl(url) {
-  if (isCloud()) return { ok: false, message: CLOUD_MESSAGE };
-  await open(url);
-  return { ok: true, message: `Opened ${url} in your browser.` };
+  return { ok: true, message: `Opened ${url} in your browser.`, clientAction: { type: 'open_url', url } };
 }
 
 export async function webSearch(query) {
-  if (isCloud()) return { ok: false, message: CLOUD_MESSAGE };
   const url = `https://duckduckgo.com/?q=${encodeURIComponent(query)}`;
-  await open(url);
-  return { ok: true, message: `Searching the web for "${query}".` };
+  return { ok: true, message: `Searching the web for "${query}".`, clientAction: { type: 'open_url', url } };
 }

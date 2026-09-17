@@ -37,6 +37,26 @@ const Tag = styled.span`
   margin-bottom: 4px;
 `;
 
+const LinkRow = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+`;
+
+const LinkChip = styled.a`
+  font-size: 12px;
+  color: ${({ theme }) => theme.colors.cyan};
+  border: 1px solid ${({ theme }) => theme.colors.cyanSoft};
+  border-radius: 999px;
+  padding: 3px 10px;
+  text-decoration: none;
+
+  &:hover {
+    border-color: ${({ theme }) => theme.colors.cyan};
+  }
+`;
+
 export default function ChatLog({ messages }) {
   return (
     <List>
@@ -44,6 +64,15 @@ export default function ChatLog({ messages }) {
         <Bubble key={i} $me={m.role === 'user'}>
           <Tag>{m.role === 'user' ? 'You' : `Sumika${m.provider ? ` · ${m.provider}` : ''}`}</Tag>
           {m.text}
+          {m.links?.length > 0 && (
+            <LinkRow>
+              {m.links.map((url) => (
+                <LinkChip key={url} href={url} target="_blank" rel="noopener noreferrer">
+                  Open ↗
+                </LinkChip>
+              ))}
+            </LinkRow>
+          )}
         </Bubble>
       ))}
     </List>

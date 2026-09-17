@@ -162,7 +162,20 @@ export default function App() {
     const slowTimer = setTimeout(() => setSlowWake(true), 6000);
     try {
       const result = await sendMessage(SESSION_ID, text);
-      setMessages((prev) => [...prev, { role: 'assistant', text: result.reply, provider: result.provider }]);
+
+      // Opening a URL happens client-side (the frontend already runs in the
+      // user's browser, whether the backend is local or cloud). Try it now -
+      // this works when the response came back quickly enough that the
+      // browser still considers this a user-initiated action. If a slow
+      // (e.g. cold-started) backend caused that window to expire, the popup
+      // gets silently blocked, so the link chip below is the fallback.
+      const links = (result.actions || [])
+        .map((a) => a.result?.clientAction)
+        .filter((a) => a?.type === 'open_url')
+        .map((a) => a.url);
+      links.forEach((url) => window.open(url, '_blank', 'noopener'));
+
+      setMessages((prev) => [...prev, { role: 'assistant', text: result.reply, provider: result.provider, links }]);
       sfx.playReply();
       speak(result.reply);
       setState('speaking');

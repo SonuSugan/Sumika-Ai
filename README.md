@@ -57,9 +57,12 @@ separately - frontend to Vercel, backend to Render:
   preset Vite. Set `VITE_BACKEND_URL` to your Render service's URL
   (e.g. `https://sumika-backend.onrender.com`).
 
-**Important**: `open_app`, `open_url`, `web_search`, and `browse_job_site` all
-control the machine Sumika's backend is running on. Deployed to Render, that's
-Render's remote server, not your PC - so those tools reply with a friendly
-"I'm running in the cloud" message instead of doing anything, and only the
-conversational/chat features work. For full PC control (opening apps, browsing
-job sites in a visible window), run the backend locally on your own machine.
+**Important**: `open_app`, `browse_job_site`, and `apply_to_job` control the
+machine Sumika's *backend* is running on. Deployed to Render, that's Render's
+remote server, not your PC - so those reply with a friendly "I'm running in
+the cloud" message instead of doing anything. For those (opening desktop apps,
+browsing job sites in a visible window), run the backend locally.
+
+`open_url` and `web_search` are different: they run client-side (the frontend
+already executes in *your* browser, wherever the backend is hosted), so those
+work the same whether you're using the local or deployed version.
