@@ -63,6 +63,15 @@ const Status = styled.div`
   text-align: center;
 `;
 
+const Transcript = styled.div`
+  font-size: 12px;
+  font-style: italic;
+  color: ${({ theme }) => theme.colors.cyan};
+  min-height: 14px;
+  text-align: center;
+  opacity: 0.85;
+`;
+
 const TextRow = styled.form`
   display: flex;
   gap: 6px;
@@ -118,6 +127,7 @@ export default function App() {
   const [helpInfo, setHelpInfo] = useState(null);
   const [muted, setMuted] = useState(false);
   const [hasResume, setHasResume] = useState(false);
+  const [slowWake, setSlowWake] = useState(false);
   const { speak, speaking } = useSpeechSynthesis();
   const sfx = useSfx();
   const wsRef = useRef(null);
@@ -152,6 +162,11 @@ export default function App() {
     sfx.playSend();
     setMessages((prev) => [...prev, { role: 'user', text }]);
     setState('thinking');
+    setSlowWake(false);
+    // The free backend host spins down after inactivity - first request after
+    // a while can take 30-50s+ to wake it back up. Without this, that silent
+    // wait looks indistinguishable from "broken".
+    const slowTimer = setTimeout(() => setSlowWake(true), 6000);
     try {
       const result = await sendMessage(SESSION_ID, text);
       setMessages((prev) => [...prev, { role: 'assistant', text: result.reply, provider: result.provider }]);
@@ -163,17 +178,23 @@ export default function App() {
       setMessages((prev) => [...prev, { role: 'assistant', text: `Sorry, I hit an error: ${err.message}` }]);
       speak('Sorry, I hit an error talking to my AI provider.');
       setState('idle');
+    } finally {
+      clearTimeout(slowTimer);
+      setSlowWake(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [speak]);
 
+  const [lastHeard, setLastHeard] = useState('');
+
   const handleVoiceResult = useCallback((transcript) => {
+    setLastHeard(transcript);
     const command = extractWakeCommand(transcript);
     if (!command) return; // heard something, but no "Sumika" wake word - ignore
     handleFinalText(command);
   }, [handleFinalText]);
 
-  const { listening, supported, permissionDenied } = useSpeechRecognition({
+  const { listening, supported, permissionDenied, interimText } = useSpeechRecognition({
     onResult: handleVoiceResult,
     active: !muted && !speaking
   });
@@ -224,6 +245,8 @@ export default function App() {
     ? 'Voice recognition needs Chrome/Edge - type below instead.'
     : permissionDenied
     ? 'Mic permission blocked - allow it in the browser, then reload.'
+    : activeState === 'thinking' && slowWake
+    ? 'Still thinking… waking up the server can take up to a minute if it\'s been idle'
     : {
         idle: 'Say "Sumika" to give a command',
         muted: 'Mic muted - tap orb to resume',
@@ -242,6 +265,11 @@ export default function App() {
         <VoiceOrb state={activeState} onClick={handleOrbClick} />
         <Waveform active={activeState === 'listening' || activeState === 'speaking'} color={activeState === 'speaking' ? 'magenta' : 'cyan'} />
         <Status>{statusText}</Status>
+        {(interimText || (activeState === 'idle' && lastHeard)) && (
+          <Transcript>
+            {interimText ? `"${interimText}"` : `heard: "${lastHeard}"`}
+          </Transcript>
+        )}
         <ChatLog messages={messages} />
         <ResumeUpload hasResume={hasResume} onUploaded={handleResumeUploaded} />
         <QuickActions onPick={handleFinalText} />
