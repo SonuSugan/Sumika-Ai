@@ -106,21 +106,14 @@ const SendButton = styled.button`
 
 const SESSION_ID = 'local-user';
 
-// Voice commands only act when the wake word is present - stops Sumika from
-// reacting to background chatter picked up by the always-on mic. Typed input
-// and the quick-action chips bypass this since those are already deliberate.
-const WAKE_WORD = /\bsumika\b[,.:!?-]?\s*/i;
-
-function extractWakeCommand(transcript) {
-  const match = WAKE_WORD.exec(transcript);
-  if (!match) return null;
-  const afterWake = transcript.slice(match.index + match[0].length).trim();
-  return afterWake || null;
-}
+// No wake word - every heard phrase is treated as a command, EXCEPT these two
+// control phrases, which pause/resume voice command handling itself.
+const STOP_LISTENING = /\bstop listening\b/i;
+const START_LISTENING = /\bstart listening\b/i;
 
 export default function App() {
   const [messages, setMessages] = useState([
-    { role: 'assistant', text: 'Hi, I\'m Sumika. Say "Sumika" followed by your command, or type below.' }
+    { role: 'assistant', text: 'Hi, I\'m Sumika. I\'m always listening - just talk. Say "stop listening" to pause, "start listening" to resume, or type below.' }
   ]);
   const [state, setState] = useState('idle');
   const [draft, setDraft] = useState('');
@@ -186,17 +179,37 @@ export default function App() {
   }, [speak]);
 
   const [lastHeard, setLastHeard] = useState('');
+  const mutedRef = useRef(muted);
+  mutedRef.current = muted;
+
+  const setListeningPaused = useCallback((paused, { viaVoice = false } = {}) => {
+    setMuted(paused);
+    sfx.playListenStart();
+    setMessages((msgs) => [...msgs, { role: 'assistant', text: paused ? 'Okay, I\'ve stopped listening. Say "start listening" to resume.' : "I'm listening again." }]);
+    if (viaVoice) speak(paused ? "Okay, I've stopped listening." : "I'm listening again.");
+  }, [sfx, speak]);
 
   const handleVoiceResult = useCallback((transcript) => {
     setLastHeard(transcript);
-    const command = extractWakeCommand(transcript);
-    if (!command) return; // heard something, but no "Sumika" wake word - ignore
-    handleFinalText(command);
-  }, [handleFinalText]);
+
+    // The recognizer itself never stops (see `active` below) - otherwise it
+    // could never hear "start listening" again once paused. Instead, pausing
+    // just makes this handler ignore everything except the resume phrase.
+    if (mutedRef.current) {
+      if (START_LISTENING.test(transcript)) setListeningPaused(false, { viaVoice: true });
+      return;
+    }
+    if (STOP_LISTENING.test(transcript)) {
+      setListeningPaused(true, { viaVoice: true });
+      return;
+    }
+
+    handleFinalText(transcript);
+  }, [handleFinalText, setListeningPaused]);
 
   const { listening, supported, permissionDenied, interimText } = useSpeechRecognition({
     onResult: handleVoiceResult,
-    active: !muted && !speaking
+    active: !speaking
   });
 
   const handleOrbClick = () => {
@@ -204,12 +217,7 @@ export default function App() {
       setMessages((prev) => [...prev, { role: 'assistant', text: 'Voice input needs Chrome or Edge - try typing instead.' }]);
       return;
     }
-    setMuted((prev) => {
-      const next = !prev;
-      sfx.playListenStart();
-      setMessages((msgs) => [...msgs, { role: 'assistant', text: next ? 'Mic muted.' : "I'm listening again." }]);
-      return next;
-    });
+    setListeningPaused(!muted);
   };
 
   const handleSubmit = (e) => {
@@ -248,8 +256,8 @@ export default function App() {
     : activeState === 'thinking' && slowWake
     ? 'Still thinking… waking up the server can take up to a minute if it\'s been idle'
     : {
-        idle: 'Say "Sumika" to give a command',
-        muted: 'Mic muted - tap orb to resume',
+        idle: 'Always listening…',
+        muted: 'Paused - say "start listening" or tap to resume',
         listening: 'Listening…',
         thinking: 'Thinking…',
         speaking: 'Speaking…'
