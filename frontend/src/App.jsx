@@ -187,6 +187,36 @@ export default function App() {
   const { speak, speaking } = useSpeechSynthesis();
   const sfx = useSfx();
   const wsRef = useRef(null);
+  // Per-site tab handles Sumika has already opened (keyed by hostname). A
+  // brand-new tab can only be opened during a real click/keypress - but once
+  // we hold a reference to a tab, navigating THAT reference's .location is a
+  // normal cross-origin-safe operation with no such restriction. So the first
+  // voice-triggered open of a given site still needs one tap (unavoidable -
+  // it's the only way to legally obtain the first handle), but every open of
+  // that same site after that, even by voice, reuses the handle and needs no
+  // tap at all.
+  const actionTabsRef = useRef(new Map());
+
+  const openOrReuseTab = useCallback((url) => {
+    let key;
+    try {
+      key = new URL(url).hostname;
+    } catch {
+      key = url;
+    }
+    const existing = actionTabsRef.current.get(key);
+    if (existing && !existing.closed) {
+      existing.location = url;
+      existing.focus();
+      return true;
+    }
+    const win = window.open(url, `sumika-${key}`);
+    if (win) {
+      actionTabsRef.current.set(key, win);
+      return true;
+    }
+    return false;
+  }, []);
 
   useEffect(() => {
     getProfile()
@@ -227,27 +257,18 @@ export default function App() {
       const result = await sendMessage(SESSION_ID, text);
 
       // Opening a URL happens client-side (the frontend already runs in the
-      // user's browser, whether the backend is local or cloud). This only
-      // succeeds when the browser still considers the request "user-initiated" -
-      // true for typed/Send-button commands, but a spoken voice command never
-      // carries that flag at all, so window.open() gets silently blocked. When
-      // that happens (it returns null/undefined), surface a big one-tap banner
-      // instead of quietly failing.
+      // user's browser, whether the backend is local or cloud). openOrReuseTab
+      // only fails when this is the very first time we're opening this
+      // particular site AND the request wasn't a real click/keypress (i.e. a
+      // voice command) - in that one case, show a one-tap banner instead of
+      // quietly failing.
       const links = (result.actions || [])
         .map((a) => a.result?.clientAction)
         .filter((a) => a?.type === 'open_url')
         .map((a) => a.url);
-      // Note: passing the 'noopener' feature string makes some browsers return
-      // null from window.open() even when it SUCCEEDS, which would make every
-      // open look "blocked". Open without it, then sever window.opener
-      // ourselves - same security effect, but a return value we can trust.
-      const blocked = links.filter((url) => {
-        const win = window.open(url, '_blank');
-        if (win) win.opener = null;
-        return !win;
-      });
+      const blocked = links.filter((url) => !openOrReuseTab(url));
       if (blocked.length) {
-        setPendingAction({ links: blocked, label: 'Your browser needs a tap to open this' });
+        setPendingAction({ links: blocked, label: 'First time opening this - one tap needed' });
       }
 
       setMessages((prev) => [...prev, { role: 'assistant', text: result.reply, provider: result.provider, links }]);
@@ -330,10 +351,10 @@ export default function App() {
   };
 
   const handleOpenPending = () => {
-    pendingAction?.links.forEach((url) => {
-      const win = window.open(url, '_blank');
-      if (win) win.opener = null;
-    });
+    // This click IS a real user gesture, so this is guaranteed to succeed and
+    // caches a handle in actionTabsRef - every future "open <this site>" for
+    // the rest of the session (even by voice, with no tap) reuses it.
+    pendingAction?.links.forEach((url) => openOrReuseTab(url));
     setPendingAction(null);
   };
 
