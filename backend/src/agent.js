@@ -16,6 +16,27 @@ const TOOL_IMPL = {
 // Keeps a short rolling conversation history per session so Sumika has context.
 const sessions = new Map();
 
+// Sumika is always-on with a single long-lived session ('local-user') that
+// never resets on its own, so its history grows without bound over hours of
+// use. Past a certain length, small/fast fallback models start losing track
+// of which turn is current - they'll skip re-calling a tool ("it's already
+// open") or echo a stale argument from an earlier call instead of reasoning
+// fresh. Trimming to the most recent turns keeps every request working the
+// same way a fresh session would, no matter how long Sumika's been running.
+// Cuts only at "user message" boundaries (never mid-turn) so a trimmed
+// assistant tool_calls message is never separated from its tool results,
+// which every provider's API requires to stay paired.
+const MAX_TURNS = 8;
+
+function trimHistory(session) {
+  const [systemMsg, ...rest] = session.messages;
+  const userIndices = rest.reduce((acc, m, i) => (m.role === 'user' ? [...acc, i] : acc), []);
+  if (userIndices.length > MAX_TURNS) {
+    const cutAt = userIndices[userIndices.length - MAX_TURNS];
+    session.messages = [systemMsg, ...rest.slice(cutAt)];
+  }
+}
+
 // Re-checks the profile on every message (cheap) and refreshes the system
 // prompt's embedded resume if it changed - e.g. after the user re-uploads one
 // mid-session - without losing the rest of the conversation history.
@@ -35,6 +56,11 @@ async function getHistory(sessionId) {
     session.profileStamp = profileStamp;
     session.messages[0] = { role: 'system', content: buildSystemPrompt(profile) };
   }
+
+  // Safe to trim here (not mid-handleUserMessage): the previous call always
+  // finished with a plain assistant reply, so there's no dangling tool_calls
+  // message that trimming could separate from its tool results.
+  trimHistory(session);
 
   return session.messages;
 }

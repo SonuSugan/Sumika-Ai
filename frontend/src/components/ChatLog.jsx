@@ -5,9 +5,9 @@ const List = styled.div`
   flex-direction: column;
   gap: 10px;
   width: 100%;
-  max-height: 30vh;
+  height: 100%;
   overflow-y: auto;
-  padding: 4px 2px;
+  padding: 4px 8px 4px 2px;
 
   &::-webkit-scrollbar { width: 5px; }
   &::-webkit-scrollbar-thumb {

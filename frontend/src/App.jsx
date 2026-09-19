@@ -1,53 +1,67 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import styled from 'styled-components';
+import styled, { keyframes } from 'styled-components';
 import VoiceOrb from './components/VoiceOrb.jsx';
 import ChatLog from './components/ChatLog.jsx';
 import HelpModal from './components/HelpModal.jsx';
 import Waveform from './components/Waveform.jsx';
 import QuickActions from './components/QuickActions.jsx';
 import ResumeUpload from './components/ResumeUpload.jsx';
+import PendingAction from './components/PendingAction.jsx';
 import { useSpeechRecognition } from './hooks/useSpeechRecognition.js';
 import { useSpeechSynthesis } from './hooks/useSpeechSynthesis.js';
 import { useSfx } from './hooks/useSfx.js';
 import { sendMessage, resumeHelp, connectSocket, getProfile } from './api.js';
 
+// Full-viewport HUD instead of a small centered dialog - Sumika now uses the
+// whole page as its "surface", with a scanning grid + drifting glow behind
+// everything for the Jarvis-console feel.
+const drift = keyframes`
+  0%, 100% { transform: translate(0, 0); }
+  50% { transform: translate(-3%, 2%); }
+`;
+
 const Screen = styled.div`
+  position: relative;
   height: 100vh;
   width: 100vw;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  background: radial-gradient(ellipse at 50% -10%, #0d2540 0%, ${({ theme }) => theme.colors.bgGradientA} 45%, ${({ theme }) => theme.colors.bgGradientB} 100%);
+`;
+
+const GridFX = styled.div`
+  position: absolute;
+  inset: -10%;
+  pointer-events: none;
+  opacity: 0.35;
+  background-image:
+    linear-gradient(${({ theme }) => theme.colors.cyanSoft} 1px, transparent 1px),
+    linear-gradient(90deg, ${({ theme }) => theme.colors.cyanSoft} 1px, transparent 1px);
+  background-size: 48px 48px;
+  mask-image: radial-gradient(ellipse at 50% 20%, black 0%, transparent 65%);
+  animation: ${drift} 24s ease-in-out infinite;
+`;
+
+const Header = styled.header`
+  position: relative;
+  z-index: 2;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 16px;
-`;
-
-const Panel = styled.div`
-  width: min(460px, 100%);
-  max-height: 94vh;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 12px;
-  padding: 20px 18px;
-  border-radius: 20px;
-  background: ${({ theme }) => theme.colors.panel};
-  border: 1px solid ${({ theme }) => theme.colors.panelBorder};
-  box-shadow: 0 0 60px rgba(91, 230, 255, 0.08);
-`;
-
-const TitleRow = styled.div`
-  display: flex;
-  align-items: center;
   gap: 8px;
+  padding: 18px 16px 8px;
+  flex-shrink: 0;
 `;
 
 const Logo = styled.img`
-  width: 26px;
-  height: 26px;
+  width: 24px;
+  height: 24px;
 `;
 
 const Title = styled.h1`
-  font-size: 20px;
-  letter-spacing: 0.16em;
+  font-size: 18px;
+  letter-spacing: 0.22em;
   font-weight: 300;
   background: linear-gradient(90deg, ${({ theme }) => theme.colors.cyan}, ${({ theme }) => theme.colors.magenta});
   -webkit-background-clip: text;
@@ -56,8 +70,28 @@ const Title = styled.h1`
   margin: 0;
 `;
 
+const Main = styled.main`
+  position: relative;
+  z-index: 2;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 4px 16px 0;
+`;
+
+const Stage = styled.div`
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+`;
+
 const Status = styled.div`
-  font-size: 11px;
+  font-size: 12px;
   color: ${({ theme }) => theme.colors.textDim};
   min-height: 14px;
   text-align: center;
@@ -72,20 +106,48 @@ const Transcript = styled.div`
   opacity: 0.85;
 `;
 
+const ChatWrap = styled.div`
+  flex: 1;
+  min-height: 0;
+  width: min(760px, 100%);
+  display: flex;
+`;
+
+const Dock = styled.footer`
+  position: relative;
+  z-index: 2;
+  flex-shrink: 0;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px 18px;
+  background: linear-gradient(180deg, transparent, rgba(5, 8, 16, 0.75) 40%);
+`;
+
+const DockInner = styled.div`
+  width: min(760px, 100%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+`;
+
 const TextRow = styled.form`
   display: flex;
-  gap: 6px;
+  gap: 8px;
   width: 100%;
 `;
 
 const Input = styled.input`
   flex: 1;
-  background: rgba(255, 255, 255, 0.04);
+  background: rgba(255, 255, 255, 0.05);
   border: 1px solid ${({ theme }) => theme.colors.panelBorder};
   color: ${({ theme }) => theme.colors.text};
-  border-radius: 10px;
-  padding: 8px 12px;
-  font-size: 13px;
+  border-radius: 12px;
+  padding: 12px 14px;
+  font-size: 14px;
   outline: none;
 
   &:focus {
@@ -97,10 +159,10 @@ const SendButton = styled.button`
   background: ${({ theme }) => theme.colors.cyan};
   color: #04121c;
   border: none;
-  border-radius: 10px;
-  padding: 0 16px;
+  border-radius: 12px;
+  padding: 0 20px;
   font-weight: 600;
-  font-size: 13px;
+  font-size: 14px;
   cursor: pointer;
 `;
 
@@ -121,6 +183,7 @@ export default function App() {
   const [muted, setMuted] = useState(false);
   const [hasResume, setHasResume] = useState(false);
   const [slowWake, setSlowWake] = useState(false);
+  const [pendingAction, setPendingAction] = useState(null);
   const { speak, speaking } = useSpeechSynthesis();
   const sfx = useSfx();
   const wsRef = useRef(null);
@@ -164,16 +227,28 @@ export default function App() {
       const result = await sendMessage(SESSION_ID, text);
 
       // Opening a URL happens client-side (the frontend already runs in the
-      // user's browser, whether the backend is local or cloud). Try it now -
-      // this works when the response came back quickly enough that the
-      // browser still considers this a user-initiated action. If a slow
-      // (e.g. cold-started) backend caused that window to expire, the popup
-      // gets silently blocked, so the link chip below is the fallback.
+      // user's browser, whether the backend is local or cloud). This only
+      // succeeds when the browser still considers the request "user-initiated" -
+      // true for typed/Send-button commands, but a spoken voice command never
+      // carries that flag at all, so window.open() gets silently blocked. When
+      // that happens (it returns null/undefined), surface a big one-tap banner
+      // instead of quietly failing.
       const links = (result.actions || [])
         .map((a) => a.result?.clientAction)
         .filter((a) => a?.type === 'open_url')
         .map((a) => a.url);
-      links.forEach((url) => window.open(url, '_blank', 'noopener'));
+      // Note: passing the 'noopener' feature string makes some browsers return
+      // null from window.open() even when it SUCCEEDS, which would make every
+      // open look "blocked". Open without it, then sever window.opener
+      // ourselves - same security effect, but a return value we can trust.
+      const blocked = links.filter((url) => {
+        const win = window.open(url, '_blank');
+        if (win) win.opener = null;
+        return !win;
+      });
+      if (blocked.length) {
+        setPendingAction({ links: blocked, label: 'Your browser needs a tap to open this' });
+      }
 
       setMessages((prev) => [...prev, { role: 'assistant', text: result.reply, provider: result.provider, links }]);
       sfx.playReply();
@@ -254,6 +329,14 @@ export default function App() {
     setMessages((prev) => [...prev, { role: 'assistant', text: "Got it - I've read your resume and I'll use it for job applications." }]);
   };
 
+  const handleOpenPending = () => {
+    pendingAction?.links.forEach((url) => {
+      const win = window.open(url, '_blank');
+      if (win) win.opener = null;
+    });
+    setPendingAction(null);
+  };
+
   const activeState = muted
     ? 'muted'
     : state === 'thinking' || state === 'speaking'
@@ -278,27 +361,37 @@ export default function App() {
 
   return (
     <Screen>
-      <Panel>
-        <TitleRow>
-          <Logo src="/favicon.svg" alt="" />
-          <Title>SUMIKA</Title>
-        </TitleRow>
-        <VoiceOrb state={activeState} onClick={handleOrbClick} />
-        <Waveform active={activeState === 'listening' || activeState === 'speaking'} color={activeState === 'speaking' ? 'magenta' : 'cyan'} />
-        <Status>{statusText}</Status>
-        {(interimText || (activeState === 'idle' && lastHeard)) && (
-          <Transcript>
-            {interimText ? `"${interimText}"` : `heard: "${lastHeard}"`}
-          </Transcript>
-        )}
-        <ChatLog messages={messages} />
-        <ResumeUpload hasResume={hasResume} onUploaded={handleResumeUploaded} />
-        <QuickActions onPick={handleFinalText} />
-        <TextRow onSubmit={handleSubmit}>
-          <Input value={draft} onChange={(e) => setDraft(e.target.value)} placeholder="Type a command…" />
-          <SendButton type="submit">Send</SendButton>
-        </TextRow>
-      </Panel>
+      <GridFX />
+      <PendingAction action={pendingAction} onOpen={handleOpenPending} onDismiss={() => setPendingAction(null)} />
+      <Header>
+        <Logo src="/favicon.svg" alt="" />
+        <Title>SUMIKA</Title>
+      </Header>
+      <Main>
+        <Stage>
+          <VoiceOrb state={activeState} onClick={handleOrbClick} />
+          <Waveform active={activeState === 'listening' || activeState === 'speaking'} color={activeState === 'speaking' ? 'magenta' : 'cyan'} />
+          <Status>{statusText}</Status>
+          {(interimText || (activeState === 'idle' && lastHeard)) && (
+            <Transcript>
+              {interimText ? `"${interimText}"` : `heard: "${lastHeard}"`}
+            </Transcript>
+          )}
+        </Stage>
+        <ChatWrap>
+          <ChatLog messages={messages} />
+        </ChatWrap>
+      </Main>
+      <Dock>
+        <DockInner>
+          <ResumeUpload hasResume={hasResume} onUploaded={handleResumeUploaded} />
+          <QuickActions onPick={handleFinalText} />
+          <TextRow onSubmit={handleSubmit}>
+            <Input value={draft} onChange={(e) => setDraft(e.target.value)} placeholder="Type a command…" />
+            <SendButton type="submit">Send</SendButton>
+          </TextRow>
+        </DockInner>
+      </Dock>
       <HelpModal info={helpInfo} onResume={handleResume} speak={speak} />
     </Screen>
   );

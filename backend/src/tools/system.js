@@ -65,13 +65,88 @@ export function openApp(name) {
   });
 }
 
+// The LLM sometimes passes a bare site name instead of a URL (e.g. "gmail"
+// instead of "https://mail.google.com") - especially from smaller fallback
+// models when a fast provider is rate-limited. Resolving well-known sites
+// ourselves means the link always works regardless of which AI answered.
+const SITE_ALIASES = {
+  gmail: 'https://mail.google.com/mail/u/0/#inbox',
+  'google mail': 'https://mail.google.com/mail/u/0/#inbox',
+  youtube: 'https://www.youtube.com',
+  linkedin: 'https://www.linkedin.com/feed/',
+  naukri: 'https://www.naukri.com/mnjuser/homepage',
+  github: 'https://github.com',
+  'google docs': 'https://docs.google.com',
+  'google sheets': 'https://sheets.google.com',
+  'google drive': 'https://drive.google.com',
+  'google calendar': 'https://calendar.google.com',
+  'google maps': 'https://maps.google.com',
+  maps: 'https://maps.google.com',
+  whatsapp: 'https://web.whatsapp.com',
+  'whatsapp web': 'https://web.whatsapp.com',
+  outlook: 'https://outlook.live.com/mail/',
+  netflix: 'https://www.netflix.com',
+  amazon: 'https://www.amazon.com',
+  twitter: 'https://twitter.com',
+  x: 'https://twitter.com',
+  facebook: 'https://www.facebook.com',
+  instagram: 'https://www.instagram.com',
+  chatgpt: 'https://chat.openai.com',
+  spotify: 'https://open.spotify.com',
+  notion: 'https://www.notion.so'
+};
+
+// Same known sites, indexed by hostname instead of name. The LLM sometimes
+// invents a full-looking URL for a known site with a wrong/nonexistent path
+// (e.g. "https://www.youtube.com/oops") instead of just naming the site - a
+// plausible guess is still a hallucination, and since it already looks like a
+// URL, a bare-name lookup never catches it. Matching by hostname does.
+const HOMEPAGE_BY_HOST = {};
+for (const homepage of new Set(Object.values(SITE_ALIASES))) {
+  try {
+    HOMEPAGE_BY_HOST[new URL(homepage).hostname.replace(/^www\./, '')] = homepage;
+  } catch {
+    // unreachable - every SITE_ALIASES value above is a valid absolute URL
+  }
+}
+
+// Normalizes whatever the LLM handed us into an actually-openable URL:
+// resolve known site names, add a protocol to bare domains, and fall back to
+// a web search for anything that isn't recognizably a URL at all (instead of
+// silently handing the browser a broken address like "gmail" or "open my mail").
+function resolveUrl(input) {
+  const raw = String(input || '').trim();
+  const key = raw.toLowerCase().replace(/^(open|go to|launch)\s+/, '').replace(/\.$/, '');
+  if (SITE_ALIASES[key]) return SITE_ALIASES[key];
+
+  if (/^https?:\/\//i.test(raw)) {
+    try {
+      const host = new URL(raw).hostname.replace(/^www\./, '');
+      if (HOMEPAGE_BY_HOST[host]) return HOMEPAGE_BY_HOST[host];
+    } catch {
+      // malformed - fall through to the search fallback below
+    }
+    return raw;
+  }
+
+  // Looks like a bare domain (has a dot, no spaces) - just missing the protocol.
+  if (/^[\w-]+(\.[\w-]+)+(\/.*)?$/.test(raw) && !raw.includes(' ')) {
+    return `https://${raw}`;
+  }
+
+  // Not a recognizable URL or known site at all - treat it as a search instead
+  // of opening a dead link.
+  return `https://duckduckgo.com/?q=${encodeURIComponent(raw)}`;
+}
+
 // Unlike open_app/browse_job_site, opening a URL doesn't need OS-level access -
 // the frontend is already running in the user's own browser, wherever the
 // backend itself is hosted. So this just tells the frontend to window.open()
 // it client-side instead of trying (and failing, in the cloud) to launch a
 // browser on the server's machine.
 export async function openUrl(url) {
-  return { ok: true, message: `Opened ${url} in your browser.`, clientAction: { type: 'open_url', url } };
+  const resolved = resolveUrl(url);
+  return { ok: true, message: `Opened ${resolved} in your browser.`, clientAction: { type: 'open_url', url: resolved } };
 }
 
 export async function webSearch(query) {
