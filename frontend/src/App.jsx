@@ -219,6 +219,28 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    if (!pendingAction) return undefined;
+    // The browser doesn't care WHY the user clicked/pressed a key - any real
+    // click or keypress anywhere on the page is just as valid a "user
+    // gesture" as tapping the banner itself. So instead of making a
+    // voice-only user specifically hunt down and tap the tiny banner button,
+    // piggyback on whatever they do next (click the orb, type a new command,
+    // press Enter) and open the pending tab as a side effect of that. The
+    // dismiss button is excluded - clicking it means "no", not "yes elsewhere".
+    const openOnNextGesture = (e) => {
+      if (e.target.closest?.('[data-pending-dismiss]')) return;
+      pendingAction.links.forEach((url) => openOrReuseTab(url));
+      setPendingAction(null);
+    };
+    document.addEventListener('click', openOnNextGesture, { capture: true });
+    document.addEventListener('keydown', openOnNextGesture, { capture: true });
+    return () => {
+      document.removeEventListener('click', openOnNextGesture, { capture: true });
+      document.removeEventListener('keydown', openOnNextGesture, { capture: true });
+    };
+  }, [pendingAction, openOrReuseTab]);
+
+  useEffect(() => {
     getProfile()
       .then((profile) => setHasResume(Boolean(profile?.resumeText)))
       .catch(() => {});

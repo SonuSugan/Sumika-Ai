@@ -80,7 +80,7 @@ export default function PendingAction({ action, onOpen, onDismiss }) {
     <Bar role="alert">
       <Text>{action.label || 'Ready to open'}</Text>
       <OpenButton ref={btnRef} onClick={onOpen}>Tap to open ↗</OpenButton>
-      <Dismiss onClick={onDismiss} aria-label="Dismiss">✕</Dismiss>
+      <Dismiss onClick={onDismiss} aria-label="Dismiss" data-pending-dismiss>✕</Dismiss>
     </Bar>
   );
 }
