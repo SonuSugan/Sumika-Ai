@@ -1,37 +1,7 @@
-import { chromium } from 'playwright';
 import { requestHelp } from './helpBus.js';
 import { getProfile } from '../profile.js';
 import { chat } from '../llm/router.js';
-
-const isCloud = () => Boolean(process.env.RENDER) || process.platform !== 'win32';
-
-const BLOCK_INDICATORS = [
-  'iframe[src*="captcha"]',
-  'text=/verify you.?re human/i',
-  'text=/unusual traffic/i',
-  '.g-recaptcha',
-  'input[type="password"]'
-];
-
-let browserInstance = null;
-async function getBrowser() {
-  if (!browserInstance) browserInstance = await chromium.launch({ headless: false });
-  return browserInstance;
-}
-
-async function detectBlocker(page) {
-  for (const selector of BLOCK_INDICATORS) {
-    try {
-      const el = page.locator(selector).first();
-      if (await el.isVisible({ timeout: 500 }).catch(() => false)) {
-        return selector.includes('password') ? 'login wall' : 'CAPTCHA / bot-check';
-      }
-    } catch {
-      // keep checking
-    }
-  }
-  return null;
-}
+import { getPage, isCloud, detectBlocker } from './browserSession.js';
 
 // Reads every visible input/textarea and whatever label text is nearest to it -
 // best-effort since every job site (Workday, Greenhouse, LinkedIn, Lever...)
@@ -105,14 +75,13 @@ export async function applyToJob({ url, jobContext }) {
     return { ok: false, message: "I don't have your resume on file yet - upload it first (Profile > Upload Resume), then ask me to apply." };
   }
 
-  const browser = await getBrowser();
-  const page = await browser.newPage();
+  const page = await getPage();
   await page.goto(url, { waitUntil: 'domcontentloaded' });
   await page.waitForTimeout(1200);
 
   const blocker = await detectBlocker(page);
   if (blocker) {
-    const { id, promise } = requestHelp({
+    const { promise } = requestHelp({
       reason: `Hit a ${blocker} while opening the application page. Please handle it in the browser window, then click "I've handled it".`,
       url: page.url()
     });

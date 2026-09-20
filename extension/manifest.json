@@ -1,0 +1,14 @@
+{
+  "manifest_version": 3,
+  "name": "Sumika Browser Control",
+  "version": "1.0.0",
+  "description": "Lets your local Sumika assistant navigate, scroll, click, and read your Chrome tabs by voice.",
+  "permissions": ["tabs", "scripting", "alarms"],
+  "host_permissions": ["<all_urls>"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html"
+  }
+}

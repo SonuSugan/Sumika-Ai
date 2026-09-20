@@ -114,7 +114,7 @@ for (const homepage of new Set(Object.values(SITE_ALIASES))) {
 // resolve known site names, add a protocol to bare domains, and fall back to
 // a web search for anything that isn't recognizably a URL at all (instead of
 // silently handing the browser a broken address like "gmail" or "open my mail").
-function resolveUrl(input) {
+export function resolveUrl(input) {
   const raw = String(input || '').trim();
   const key = raw.toLowerCase().replace(/^(open|go to|launch)\s+/, '').replace(/\.$/, '');
   if (SITE_ALIASES[key]) return SITE_ALIASES[key];

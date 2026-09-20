@@ -7,6 +7,7 @@ import { createServer } from 'node:http';
 import { WebSocketServer } from 'ws';
 import { handleUserMessage, resetSession } from './src/agent.js';
 import { helpBus, resolveHelp } from './src/tools/helpBus.js';
+import { registerExtensionSocket, isExtensionConnected } from './src/tools/extensionBridge.js';
 import { getProfile, saveProfile, saveResume } from './src/profile.js';
 
 const app = express();
@@ -15,7 +16,12 @@ app.use(cors());
 app.use(express.json());
 
 const server = createServer(app);
-const wss = new WebSocketServer({ server, path: '/ws' });
+// noServer + one manual router below - `ws`'s own {server, path} convenience
+// constructor makes EVERY WebSocketServer instance on the same http.Server
+// react to EVERY upgrade request, and any instance whose path doesn't match
+// actively responds 400 (not a silent skip) before the matching one gets a
+// turn. With two servers ('/ws' and '/ext') that broke '/ext' entirely.
+const wss = new WebSocketServer({ noServer: true });
 
 const clients = new Set();
 wss.on('connection', (ws) => {
@@ -33,6 +39,27 @@ wss.on('connection', (ws) => {
   });
 });
 
+// The Sumika Chrome extension connects here (separate from the UI's /ws
+// channel above) so backend tools can ask it to navigate/scroll/click/read
+// the user's actual, already-open Chrome - see src/tools/extensionBridge.js.
+const extWss = new WebSocketServer({ noServer: true });
+extWss.on('connection', (ws) => {
+  console.log('[extension] connected');
+  ws.on('close', () => console.log('[extension] disconnected'));
+  registerExtensionSocket(ws);
+});
+
+server.on('upgrade', (request, socket, head) => {
+  const { pathname } = new URL(request.url, `http://${request.headers.host}`);
+  if (pathname === '/ws') {
+    wss.handleUpgrade(request, socket, head, (ws) => wss.emit('connection', ws, request));
+  } else if (pathname === '/ext') {
+    extWss.handleUpgrade(request, socket, head, (ws) => extWss.emit('connection', ws, request));
+  } else {
+    socket.destroy();
+  }
+});
+
 function broadcast(payload) {
   const data = JSON.stringify(payload);
   for (const ws of clients) {
@@ -46,6 +73,7 @@ helpBus.on('blocked', (info) => {
 });
 
 app.get('/api/health', (_req, res) => res.json({ ok: true }));
+app.get('/api/extension-status', (_req, res) => res.json({ connected: isExtensionConnected() }));
 
 app.post('/api/chat', async (req, res) => {
   const { sessionId = 'default', message } = req.body;

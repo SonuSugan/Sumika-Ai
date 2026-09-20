@@ -3,6 +3,7 @@ import { buildSystemPrompt, TOOLS } from './persona.js';
 import { openApp, openUrl, webSearch } from './tools/system.js';
 import { browseJobSite } from './tools/browser.js';
 import { applyToJob } from './tools/jobApply.js';
+import { openInBrowser, scrollInBrowser, clickInBrowser, readBrowserPage } from './tools/browserControl.js';
 import { getProfile } from './profile.js';
 
 const TOOL_IMPL = {
@@ -10,7 +11,11 @@ const TOOL_IMPL = {
   open_url: ({ url }) => openUrl(url),
   web_search: ({ query }) => webSearch(query),
   browse_job_site: ({ site, query, location }) => browseJobSite({ site, query, location }),
-  apply_to_job: ({ url, jobContext }) => applyToJob({ url, jobContext })
+  apply_to_job: ({ url, jobContext }) => applyToJob({ url, jobContext }),
+  open_in_browser: ({ url }) => openInBrowser({ url }),
+  scroll_in_browser: ({ direction, amount }) => scrollInBrowser({ direction, amount }),
+  click_in_browser: ({ text }) => clickInBrowser({ text }),
+  read_browser_page: () => readBrowserPage()
 };
 
 // Keeps a short rolling conversation history per session so Sumika has context.
