@@ -7,7 +7,8 @@ import { createServer } from 'node:http';
 import { WebSocketServer } from 'ws';
 import { handleUserMessage, resetSession } from './src/agent.js';
 import { helpBus, resolveHelp } from './src/tools/helpBus.js';
-import { registerExtensionSocket, isExtensionConnected } from './src/tools/extensionBridge.js';
+import { acceptExtensionConnection, isExtensionConnected } from './src/tools/extensionBridge.js';
+import { isTrusted } from './src/auth.js';
 import { getProfile, saveProfile, saveResume } from './src/profile.js';
 
 const app = express();
@@ -43,11 +44,7 @@ wss.on('connection', (ws) => {
 // channel above) so backend tools can ask it to navigate/scroll/click/read
 // the user's actual, already-open Chrome - see src/tools/extensionBridge.js.
 const extWss = new WebSocketServer({ noServer: true });
-extWss.on('connection', (ws) => {
-  console.log('[extension] connected');
-  ws.on('close', () => console.log('[extension] disconnected'));
-  registerExtensionSocket(ws);
-});
+extWss.on('connection', (ws, req) => acceptExtensionConnection(ws, req));
 
 server.on('upgrade', (request, socket, head) => {
   const { pathname } = new URL(request.url, `http://${request.headers.host}`);
@@ -73,16 +70,34 @@ helpBus.on('blocked', (info) => {
 });
 
 app.get('/api/health', (_req, res) => res.json({ ok: true }));
-app.get('/api/extension-status', (_req, res) => res.json({ connected: isExtensionConnected() }));
+app.get('/api/extension-status', (req, res) => {
+  if (!isTrusted(req)) return res.status(401).json({ error: 'Access code required' });
+  res.json({ connected: isExtensionConnected() });
+});
+
+// Lets the UI check an access code before it pairs the extension with it.
+app.get('/api/access', (req, res) => res.json({ trusted: isTrusted(req) }));
 
 app.post('/api/chat', async (req, res) => {
   const { sessionId = 'default', message } = req.body;
   if (!message) return res.status(400).json({ error: 'message is required' });
 
+  // Only the owner (right access code, or this very machine) may use the
+  // browser-control tools, and only the owner shares the history that holds
+  // what those tools read - anyone else gets a separate conversation, so
+  // asking "what was on that page?" can't pull it back out.
+  const trusted = isTrusted(req);
+  const sid = trusted ? sessionId : `public:${sessionId}`;
+
   try {
-    const result = await handleUserMessage(sessionId, message, (event) => {
-      broadcast({ type: 'tool_event', sessionId, ...event });
-    });
+    // Only name + status go out on the shared socket: args and results can
+    // contain text read from the owner's browser.
+    const result = await handleUserMessage(
+      sid,
+      message,
+      (event) => broadcast({ type: 'tool_event', sessionId, name: event.name, status: event.status }),
+      { trusted }
+    );
     res.json(result);
   } catch (err) {
     res.status(500).json({ error: err.message });

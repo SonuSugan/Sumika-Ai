@@ -7,6 +7,15 @@ export function makeOpenAICompatibleProvider({ name, baseUrl, apiKeyEnv, modelEn
     const apiKey = process.env[apiKeyEnv];
     if (!apiKey) throw new Error(`${apiKeyEnv} not set`);
 
+    // History is shared by every provider, so it can hold tool calls that another
+    // one produced (with provider-specific extras like Gemini's thought
+    // signature). Strict endpoints reject unknown fields - send only the standard ones.
+    const cleaned = messages.map((m) =>
+      m.tool_calls
+        ? { ...m, tool_calls: m.tool_calls.map((c) => ({ id: c.id, type: 'function', function: c.function })) }
+        : m
+    );
+
     const res = await fetch(`${baseUrl}/chat/completions`, {
       method: 'POST',
       headers: {
@@ -15,7 +24,7 @@ export function makeOpenAICompatibleProvider({ name, baseUrl, apiKeyEnv, modelEn
       },
       body: JSON.stringify({
         model: process.env[modelEnv] || defaultModel,
-        messages,
+        messages: cleaned,
         ...(tools?.length ? { tools, tool_choice: 'auto' } : {})
       })
     });

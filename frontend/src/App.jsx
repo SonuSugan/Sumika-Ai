@@ -7,6 +7,7 @@ import Waveform from './components/Waveform.jsx';
 import QuickActions from './components/QuickActions.jsx';
 import ResumeUpload from './components/ResumeUpload.jsx';
 import PendingAction from './components/PendingAction.jsx';
+import BrowserControl from './components/BrowserControl.jsx';
 import { useSpeechRecognition } from './hooks/useSpeechRecognition.js';
 import { useSpeechSynthesis } from './hooks/useSpeechSynthesis.js';
 import { useSfx } from './hooks/useSfx.js';
@@ -448,6 +449,7 @@ export default function App() {
       <Dock>
         <DockInner>
           <ResumeUpload hasResume={hasResume} onUploaded={handleResumeUploaded} />
+          <BrowserControl />
           <QuickActions onPick={handleFinalText} />
           <TextRow onSubmit={handleSubmit}>
             <Input value={draft} onChange={(e) => setDraft(e.target.value)} placeholder="Type a command…" />

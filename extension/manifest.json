@@ -1,13 +1,20 @@
 {
   "manifest_version": 3,
   "name": "Sumika Browser Control",
-  "version": "1.0.0",
-  "description": "Lets your local Sumika assistant navigate, scroll, click, and read your Chrome tabs by voice.",
-  "permissions": ["tabs", "scripting", "alarms"],
+  "version": "1.1.0",
+  "description": "Lets your Sumika assistant navigate, scroll, click, type into and read your Chrome tabs by voice.",
+  "permissions": ["tabs", "scripting", "alarms", "storage"],
   "host_permissions": ["<all_urls>"],
   "background": {
     "service_worker": "background.js"
   },
+  "content_scripts": [
+    {
+      "matches": ["https://sumika-ai-theta.vercel.app/*", "http://localhost:5173/*"],
+      "js": ["content.js"],
+      "run_at": "document_start"
+    }
+  ],
   "action": {
     "default_popup": "popup.html"
   }

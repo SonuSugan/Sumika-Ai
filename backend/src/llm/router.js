@@ -45,16 +45,42 @@ function getOrder() {
   return configured.filter((name) => PROVIDERS[name]);
 }
 
+// Free tiers cap tokens per MINUTE, and a multi-step job (one call per step)
+// can brush against that within a single instruction. The provider says how
+// long to wait ("try again in 3.0s", "retry in 21s"); when every provider is
+// momentarily limited, waiting that out beats failing the user's whole request.
+const MAX_WAIT_MS = 35000;
+const ROUNDS = 4;
+
+function retryAfterMs(message) {
+  const m = message.match(/(?:try again|retry) in ([\d.]+)\s*(ms|s)\b/i) || message.match(/"retryDelay":\s*"([\d.]+)()s"/i);
+  if (!m) return 0;
+  const ms = m[2] === 'ms' ? Number(m[1]) : Number(m[1]) * 1000;
+  return ms <= MAX_WAIT_MS ? ms : 0;
+}
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
 export async function chat({ messages, tools }) {
   const order = getOrder();
-  const errors = [];
+  let errors = [];
 
-  for (const name of order) {
-    try {
-      return await PROVIDERS[name]({ messages, tools });
-    } catch (err) {
-      errors.push(`${name}: ${err.message}`);
+  for (let round = 0; round < ROUNDS; round += 1) {
+    errors = [];
+    let shortestWait = 0;
+
+    for (const name of order) {
+      try {
+        return await PROVIDERS[name]({ messages, tools });
+      } catch (err) {
+        errors.push(`${name}: ${err.message}`);
+        const wait = retryAfterMs(err.message);
+        if (wait && (!shortestWait || wait < shortestWait)) shortestWait = wait;
+      }
     }
+
+    if (!shortestWait || round === ROUNDS - 1) break;
+    await sleep(shortestWait + 400);
   }
 
   throw new Error(

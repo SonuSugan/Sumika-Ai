@@ -3,18 +3,21 @@
 <head>
   <meta charset="utf-8" />
   <style>
-    body { font-family: system-ui, sans-serif; width: 240px; padding: 14px; background: #0c1220; color: #e8f4ff; }
+    body { font-family: system-ui, sans-serif; width: 260px; padding: 14px; background: #0c1220; color: #e8f4ff; }
     h1 { font-size: 14px; margin: 0 0 8px; }
-    p { font-size: 12px; color: #9fb3c8; margin: 4px 0; }
-    .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
-    .ok { background: #4ade80; }
-    .bad { background: #f87171; }
+    p { font-size: 12px; color: #9fb3c8; margin: 6px 0; line-height: 1.4; }
+    .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; background: #f87171; }
+    .dot.ok { background: #4ade80; }
+    .dot.wait { background: #fbbf24; }
+    button { margin-top: 8px; background: transparent; color: #5be6ff; border: 1px solid #1f3a52; border-radius: 999px; padding: 5px 12px; font-size: 12px; cursor: pointer; }
+    button:hover { border-color: #5be6ff; }
   </style>
 </head>
 <body>
   <h1>Sumika Browser Control</h1>
-  <p id="status"><span class="dot bad"></span>Checking backend…</p>
-  <p>Backend must be running locally (localhost:5175) for Sumika to drive this browser.</p>
+  <p id="status"><span class="dot"></span>Checking...</p>
+  <p id="detail"></p>
+  <button id="forget" hidden>Forget pairing</button>
   <script src="popup.js"></script>
 </body>
 </html>
