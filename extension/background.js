@@ -80,6 +80,7 @@ function openSocket(config) {
   }
   ws = socket;
   lastSeen = Date.now();
+  let rejected = false;
 
   socket.onopen = () => {
     lastSeen = Date.now();
@@ -109,6 +110,8 @@ function openSocket(config) {
       state = 'connected';
       failures = 0;
       nextTryAt = 0;
+    } else if (msg.type === 'unauthorized') {
+      rejected = true;
     } else if (msg.type === 'command') handleCommand(msg, socket);
   };
 
@@ -116,7 +119,8 @@ function openSocket(config) {
     if (ws !== socket) return;
     ws = null;
     clearInterval(pingTimer);
-    state = event.code === 4401 ? 'unauthorized' : 'unreachable';
+    // The explicit message is what counts: Render's proxy can swallow the close code.
+    state = rejected || event.code === 4401 ? 'unauthorized' : 'unreachable';
     if (state === 'unreachable') {
       failures += 1;
       nextTryAt = Date.now() + Math.min(24000 * 2 ** (failures - 1), 300000);

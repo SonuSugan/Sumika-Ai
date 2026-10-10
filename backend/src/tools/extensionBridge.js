@@ -15,10 +15,23 @@ let nextId = 1;
 
 const AUTH_DEADLINE_MS = 5000;
 
+// Render's proxy doesn't reliably pass a custom close code (4401) through - the
+// client just sees a dropped connection ~20s later - so the rejection is also a
+// normal message the extension can act on, followed by a hard drop.
+function reject(ws, reason) {
+  try {
+    ws.send(JSON.stringify({ type: 'unauthorized' }));
+  } catch {
+    // already gone
+  }
+  ws.close(4401, reason);
+  setTimeout(() => ws.terminate(), 1000);
+}
+
 export function acceptExtensionConnection(ws, req) {
   let accepted = false;
   const authTimer = setTimeout(() => {
-    if (!accepted) ws.close(4401, 'auth timeout');
+    if (!accepted) reject(ws, 'auth timeout');
   }, AUTH_DEADLINE_MS);
 
   const accept = () => {
@@ -54,7 +67,7 @@ export function acceptExtensionConnection(ws, req) {
     if (!accepted) {
       if (msg.type !== 'auth') return;
       if (tokenMatches(msg.token)) accept();
-      else ws.close(4401, 'bad token');
+      else reject(ws, 'bad token');
       return;
     }
     if (msg.type === 'ping') {
