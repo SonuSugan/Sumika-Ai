@@ -111,7 +111,12 @@ function openSocket(config) {
       failures = 0;
       nextTryAt = 0;
     } else if (msg.type === 'unauthorized') {
+      // Act now - behind Render's proxy the socket's own close can lag ~20s.
       rejected = true;
+      if (ws === socket) {
+        closeSocket();
+        state = 'unauthorized';
+      }
     } else if (msg.type === 'command') handleCommand(msg, socket);
   };
 
