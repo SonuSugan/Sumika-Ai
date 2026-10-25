@@ -1,0 +1,18 @@
+name: Sumika job search
+
+on:
+  schedule:
+    # 7:00 AM and 10:00 PM IST (UTC+5:30) - GitHub Actions cron runs in UTC.
+    - cron: '30 1 * * *'
+    - cron: '30 16 * * *'
+  workflow_dispatch: {} # lets you trigger a run manually from the Actions tab
+
+jobs:
+  trigger:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Sumika job search
+        run: |
+          curl -X POST "https://sumika-backend.onrender.com/api/job-search/run" \
+            -H "X-Job-Search-Secret: ${{ secrets.JOB_SEARCH_SECRET }}" \
+            --fail --max-time 30

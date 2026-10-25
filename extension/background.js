@@ -192,6 +192,11 @@ chrome.runtime.onStartup.addListener(() => {
   syncConnection();
 });
 chrome.tabs.onCreated.addListener(scheduleSync);
+// Remember which tab opened which, so a click that pops a new tab can be followed.
+const openedBy = new Map();
+chrome.tabs.onCreated.addListener((tab) => {
+  if (tab.openerTabId != null) openedBy.set(tab.openerTabId, { id: tab.id, at: Date.now() });
+});
 chrome.tabs.onRemoved.addListener(scheduleSync);
 chrome.tabs.onUpdated.addListener((_id, info, tab) => {
   // Reloading the Sumika page also counts as "try again now".
@@ -519,11 +524,73 @@ function pageAction(action, a) {
     }
     if (!el) return { found: false, error: a.ref != null ? gone(a.ref) : undefined };
     const label = labelOf(el);
-    if (FINAL.test(label)) return { found: true, blocked: true, matchedText: label.slice(0, 60) };
+    // A final button is clicked only when the backend, having heard the user say
+    // yes, names exactly this button - never because the model asked.
+    const approved = a.allowFinal && clean(a.allowFinal).toLowerCase() === label.slice(0, 60).toLowerCase();
+    if (FINAL.test(label) && !approved) return { found: true, blocked: true, matchedText: label.slice(0, 60) };
     el.scrollIntoView({ block: 'center', inline: 'center' });
     flash(el);
+    // A script-made click on a target=_blank link is eaten by the popup blocker;
+    // hand the address back and let the worker open the tab itself.
+    const link = el.closest('a[href]');
+    if (link && link.target === '_blank' && /^https?:/i.test(link.href)) {
+      return { found: true, matchedText: label.slice(0, 60), newTabHref: link.href };
+    }
     el.click();
     return { found: true, matchedText: label.slice(0, 60) };
+  }
+
+  if (action === 'check') {
+    const isBox = (el) => (el.tagName === 'INPUT' && /^(checkbox|radio)$/i.test(el.type)) || /^(checkbox|radio|switch)$/.test(el.getAttribute('role') || '');
+    const el = a.ref != null ? byRef(a.ref) : bestMatch(a.label, interactive().filter(isBox));
+    if (!el) return { found: false, error: a.ref != null ? gone(a.ref) : undefined };
+    if (!isBox(el)) return { found: false, error: "That isn't a checkbox or radio button." };
+    const want = a.checked !== false;
+    const isOn = el.tagName === 'INPUT' ? el.checked : el.getAttribute('aria-checked') === 'true';
+    if (isOn !== want) {
+      el.scrollIntoView({ block: 'center' });
+      flash(el);
+      el.click();
+    }
+    return { found: true, fieldLabel: labelOf(el).slice(0, 60), checked: want };
+  }
+
+  if (action === 'press') {
+    const focused = document.activeElement && document.activeElement !== document.body ? document.activeElement : null;
+    const el = a.ref != null ? byRef(a.ref) : focused || document.body;
+    if (a.ref != null && !el) return { found: false, error: gone(a.ref) };
+    const codes = { Enter: 13, Escape: 27, Tab: 9 };
+    const fire = (target, type) =>
+      target.dispatchEvent(new KeyboardEvent(type, { key: a.key, code: a.key, keyCode: codes[a.key], which: codes[a.key], bubbles: true, cancelable: true }));
+    if (a.key === 'Escape') {
+      fire(el, 'keydown');
+      fire(el, 'keyup');
+      document.querySelector('dialog[open]')?.close();
+      return { found: true };
+    }
+    if (a.key === 'Tab') {
+      const order = interactive().filter((e) => !e.disabled);
+      const next = order[order.indexOf(el) + 1] || order[0];
+      next?.focus();
+      return { found: Boolean(next) };
+    }
+    const label = labelOf(el);
+    if (FINAL.test(label)) return { found: true, blocked: true, matchedText: label.slice(0, 60) };
+    if (el.tagName === 'A' || el.tagName === 'BUTTON' || el.getAttribute('role') === 'button') {
+      el.click();
+      return { found: true };
+    }
+    const form = el.form;
+    if (form) {
+      const button = form.querySelector('[type=submit]');
+      if (form.querySelector('input[type=password]') || FINAL.test(clean(button?.innerText || button?.value))) {
+        return { found: true, blocked: true, matchedText: clean(button?.innerText || button?.value || 'this form') };
+      }
+      form.requestSubmit();
+      return { found: true };
+    }
+    for (const t of ['keydown', 'keypress', 'keyup']) fire(el, t);
+    return { found: true };
   }
 
   if (action === 'type') {
@@ -706,11 +773,38 @@ async function runCommand(action, p) {
     return runInPage(tab, 'scroll', p);
   }
 
-  if (action === 'click' || action === 'type' || action === 'select') {
+  if (['click', 'type', 'select', 'check', 'press'].includes(action)) {
     const before = tab.url;
     const result = await runInPage(tab, action, p);
     const acted = result.found && !result.blocked && result.error === undefined && result.chosen !== null;
-    if (acted && (action === 'click' || (action === 'type' && p.submit))) await settle(tab.id);
+
+    // A link meant for a new tab: open it ourselves and carry on there, as a person would.
+    if (acted && result.newTabHref) {
+      const fresh = await tabsOp(() => chrome.tabs.create({ url: 'about:blank', openerTabId: tab.id }));
+      await track(fresh);
+      await bringForward(fresh);
+      await navigateAndWait(fresh.id, () => tabsOp(() => chrome.tabs.update(fresh.id, { url: result.newTabHref })));
+      const now = await chrome.tabs.get(fresh.id);
+      return { ...result, url: now.url, openedNewTab: true };
+    }
+
+    const commits = action === 'click' || (action === 'type' && p.submit) || (action === 'press' && p.key === 'Enter');
+    if (acted && commits) {
+      await settle(tab.id);
+      // The page's own script may have opened a tab (window.open) - follow it.
+      const child = openedBy.get(tab.id);
+      if (child && Date.now() - child.at < 6000) {
+        openedBy.delete(tab.id);
+        const opened = await chrome.tabs.get(child.id).catch(() => null);
+        if (opened && !isSumikaPage(opened)) {
+          await track(opened);
+          await bringForward(opened);
+          await settle(opened.id);
+          const now = await chrome.tabs.get(opened.id);
+          return { ...result, url: now.url, openedNewTab: true };
+        }
+      }
+    }
     const now = await chrome.tabs.get(tab.id).catch(() => tab);
     return { ...result, url: now.url, navigated: now.url !== before };
   }

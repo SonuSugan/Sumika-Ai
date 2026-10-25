@@ -69,7 +69,7 @@ export function acceptExtensionConnection(ws, req) {
       if (tokenMatches(msg.token)) accept();
       else reject(ws, 'bad token');
       return;
-    }
+    }  /* ok */
     if (msg.type === 'ping') {
       ws.send('{"type":"pong"}');
       return;

@@ -1,5 +1,6 @@
 import { sendCommand } from './extensionBridge.js';
 import { resolveUrl } from './system.js';
+import { consumeApproval, requestConfirmation } from '../confirmations.js';
 
 // Drives the user's REAL, already-open Chrome via the Sumika extension - not a
 // separate Playwright window like browse_job_site/apply_to_job use. A plain web
@@ -7,10 +8,9 @@ import { resolveUrl } from './system.js';
 // of Sumika that has to be an actual browser extension; sendCommand() talks to
 // it over the /ext WebSocket wired up in server.js.
 
-// Sumika navigates, fills in and reads; the human commits to anything final.
-// The extension enforces this again on the label of the element it actually
-// finds, since the words the user said can differ from what the button says.
-const FINAL_ACTION = /\b(submit|apply now|pay|buy|purchase|checkout|confirm order|place order|delete account)\b/i;
+// Final clicks are decided by the extension from the label of the element it
+// actually finds (the words the user said can differ from what the button says)
+// and then wait for the user's yes - see confirmations.js.
 
 const MAX_MESSAGE = 5500;
 const clip = (text) => (text.length > MAX_MESSAGE ? `${text.slice(0, MAX_MESSAGE)}\n...(cut)` : text);
@@ -62,17 +62,66 @@ export async function scrollInBrowser({ direction = 'down', amount = 'normal' })
   return { ok: true, message: `Scrolled ${direction}; now ${r.position}.` };
 }
 
-export async function clickInBrowser({ ref, text }) {
+export async function clickInBrowser({ ref, text, confirm }, ctx = {}) {
   if (ref == null && !text) return { ok: false, message: 'Say which element to click: a [number] from read_browser_page, or its visible text.' };
-  if (ref == null && FINAL_ACTION.test(String(text))) {
-    return { ok: false, message: `I won't click "${text}" - that looks like a final/irreversible action. Please click that one yourself.` };
+
+  // A final action (Submit, Send, Place order, Delete...) goes through only
+  // after the USER said yes - recognised in agent.js from their own message,
+  // for that one button. `confirm` alone does nothing without it.
+  let allowFinal;
+  if (confirm) {
+    allowFinal = consumeApproval(ctx.sessionKey);
+    if (!allowFinal) return { ok: false, message: "The user hasn't said yes to that yet. Tell them what you're about to do and ask them first." };
   }
-  const r = await sendCommand('click', { ref, text });
-  if (r.blocked) return { ok: false, message: `I won't click "${r.matchedText}" - that looks like a final/irreversible action. Please click that one yourself.` };
+
+  const r = await sendCommand('click', { ref, text, allowFinal });
+  if (r.blocked) {
+    if (ctx.sessionKey) requestConfirmation(ctx.sessionKey, { label: r.matchedText, url: r.url });
+    return {
+      ok: false,
+      needsConfirmation: true,
+      message: `"${r.matchedText}" is a final action, so I need the user's yes first. Tell them exactly what you're about to do (what, where, any amount or recipient) and ask them to confirm. After they say yes, call click_in_browser again with confirm:true.`
+    };
+  }
   if (!r.found) return { ok: false, message: r.error || `I don't see anything matching "${text ?? ref}" on the page. Try read_browser_page to see what's there.` };
   const clicked = `Clicked ${r.matchedText ? `"${r.matchedText}"` : `[${ref}]`}.`;
+  if (r.openedNewTab) return { ok: true, message: await withPage(`${clicked} It opened in a new tab, which I've switched to (${r.url}).`) };
   if (r.navigated) return { ok: true, message: await withPage(`${clicked} It went to ${r.url}.`) };
   return { ok: true, message: `${clicked} Still on ${r.url}.` };
+}
+
+export async function checkInBrowser({ ref, label, checked = true }) {
+  if (ref == null && !label) return { ok: false, message: 'Say which checkbox or radio: a [number] or its label.' };
+  const r = await sendCommand('check', { ref, label, checked });
+  if (!r.found) return { ok: false, message: r.error || `I can't find a checkbox matching "${label ?? ref}".` };
+  return { ok: true, message: `${r.checked ? 'Ticked' : 'Unticked'} "${r.fieldLabel || label || ref}".` };
+}
+
+const KEYS = ['Enter', 'Escape', 'Tab'];
+
+export async function pressKeyInBrowser({ key, ref }) {
+  if (!KEYS.includes(key)) return { ok: false, message: `I can press ${KEYS.join(', ')}.` };
+  const r = await sendCommand('press', { key, ref });
+  if (r.blocked) return { ok: false, message: `Pressing Enter there would submit or confirm something final ("${r.matchedText}"). Click its button instead - I'll ask the user first.` };
+  if (!r.found) return { ok: false, message: r.error || "There's nothing focused to press that on." };
+  if (r.openedNewTab || r.navigated) return { ok: true, message: await withPage(`Pressed ${key}. It went to ${r.url}.`) };
+  return { ok: true, message: `Pressed ${key}.` };
+}
+
+// A whole form in one model step instead of one step per field - on free-tier
+// models every step is a call that can hit a rate limit.
+export async function fillForm({ fields }) {
+  if (!Array.isArray(fields) || !fields.length) return { ok: false, message: 'Give me the fields to fill: each with a [number] or label, and a value, option or checked.' };
+  const lines = [];
+  for (const f of fields.slice(0, 25)) {
+    const name = f.label || (f.ref != null ? `[${f.ref}]` : 'a field');
+    let r;
+    if (f.option != null) r = await selectInBrowser({ ref: f.ref, label: f.label, option: f.option });
+    else if (f.checked != null) r = await checkInBrowser({ ref: f.ref, label: f.label, checked: f.checked });
+    else r = await typeInBrowser({ ref: f.ref, label: f.label, text: f.value ?? '', clear: true });
+    lines.push(`${r.ok ? 'done' : 'FAILED'}: ${name}${r.ok ? '' : ` - ${r.message}`}`);
+  }
+  return { ok: lines.every((l) => l.startsWith('done')), message: lines.join('\n') };
 }
 
 export async function typeInBrowser({ ref, label, text, clear = true, submit = false }) {

@@ -38,7 +38,7 @@ export async function sendMessage(sessionId, message) {
   const res = await fetch(`${BASE}/api/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...(code ? { 'X-Sumika-Token': code } : {}) },
-    body: JSON.stringify({ sessionId, message })
+    body: JSON.stringify({ sessionId, message, tz: Intl.DateTimeFormat().resolvedOptions().timeZone })
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: res.statusText }));

@@ -1,5 +1,8 @@
 import { chat } from './llm/router.js';
-import { buildSystemPrompt, TOOLS, BROWSER_TOOL_NAMES } from './persona.js';
+import { buildSystemPrompt, TOOLS, OWNER_TOOL_NAMES } from './persona.js';
+import { memoryForPrompt } from './memory.js';
+import { interpretReply } from './confirmations.js';
+import { memoryTool, routineTool, getTime, setTimer } from './tools/assistant.js';
 import { openApp, openUrl, webSearch } from './tools/system.js';
 import { browseJobSite } from './tools/browser.js';
 import { applyToJob } from './tools/jobApply.js';
@@ -10,6 +13,8 @@ import {
   clickInBrowser,
   typeInBrowser,
   selectInBrowser,
+  fillForm,
+  pressKeyInBrowser,
   readBrowserPage,
   browserTabs,
   waitInBrowser
@@ -31,21 +36,27 @@ const TOOL_IMPL = {
   open_in_browser: (args) => openInBrowser(args),
   browser_history: (args) => browserHistory(args),
   scroll_in_browser: (args) => scrollInBrowser(args),
-  click_in_browser: (args) => clickInBrowser(args),
+  click_in_browser: (args, ctx) => clickInBrowser(args, ctx),
   type_in_browser: (args) => typeInBrowser(args),
   select_in_browser: (args) => selectInBrowser(args),
+  fill_form: (args) => fillForm(args),
+  press_key_in_browser: (args) => pressKeyInBrowser(args),
   read_browser_page: () => readBrowserPage(),
   browser_tabs: (args) => browserTabs(args),
-  wait_in_browser: (args) => waitInBrowser(args)
+  wait_in_browser: (args) => waitInBrowser(args),
+  memory: (args) => memoryTool(args),
+  routine: (args) => routineTool(args),
+  get_time: (args, ctx) => getTime(args, ctx),
+  set_timer: (args) => setTimer(args)
 };
 
 // These reach into the owner's real browser (and read what's on their pages),
 // so they only run for a caller who has proven they're the owner.
-const BROWSER_TOOLS = new Set(BROWSER_TOOL_NAMES);
-const PUBLIC_TOOLS = TOOLS.filter((t) => !BROWSER_TOOLS.has(t.function.name));
+const OWNER_TOOLS = new Set(OWNER_TOOL_NAMES);
+const PUBLIC_TOOLS = TOOLS.filter((t) => !OWNER_TOOLS.has(t.function.name));
 
 const NOT_TRUSTED_MESSAGE =
-  "Browser control needs your Sumika access code. Tell the user to enter it in Sumika's Browser control box, then ask again.";
+  "That needs your Sumika access code. Tell the user to enter it in Sumika's Browser control box, then ask again.";
 
 // A job like "open X, scroll, click Y, fill the form" is several tool calls in
 // a row, each one chosen after seeing the last result. This bounds how many
@@ -95,20 +106,19 @@ const sessionKey = (sessionId, trusted) => `${trusted ? 'owner' : 'public'}:${se
 
 async function getHistory(sessionId, trusted) {
   const profile = await getProfile().catch(() => null);
-  const profileStamp = profile?.resumeText ? `has:${profile.updatedAt || ''}` : 'none';
+  // What the owner has taught Sumika is part of the prompt - re-read on every
+  // message so a fact learned a moment ago is known on the very next one.
+  const memory = trusted ? await memoryForPrompt().catch(() => null) : null;
+  const stamp = `${profile?.resumeText ? `has:${profile.updatedAt || ''}` : 'none'}|${memory?.stamp || '-'}`;
   const key = sessionKey(sessionId, trusted);
+  const system = () => ({ role: 'system', content: buildSystemPrompt(profile, { browser: trusted, memory }) });
 
-  if (!sessions.has(key)) {
-    sessions.set(key, {
-      profileStamp,
-      messages: [{ role: 'system', content: buildSystemPrompt(profile, { browser: trusted }) }]
-    });
-  }
+  if (!sessions.has(key)) sessions.set(key, { profileStamp: stamp, messages: [system()] });
 
   const session = sessions.get(key);
-  if (session.profileStamp !== profileStamp) {
-    session.profileStamp = profileStamp;
-    session.messages[0] = { role: 'system', content: buildSystemPrompt(profile, { browser: trusted }) };
+  if (session.profileStamp !== stamp) {
+    session.profileStamp = stamp;
+    session.messages[0] = system();
   }
 
   // Safe to trim here (not mid-handleUserMessage): the previous call always
@@ -149,11 +159,11 @@ async function runTool(call, onToolEvent, context) {
 
   onToolEvent?.({ name, args, status: 'running' });
   let result;
-  if (BROWSER_TOOLS.has(name) && !context.trusted) {
+  if (OWNER_TOOLS.has(name) && !context.trusted) {
     result = { ok: false, message: NOT_TRUSTED_MESSAGE };
   } else {
     try {
-      result = await fn(args);
+      result = await fn(args, context);
     } catch (err) {
       result = { ok: false, message: err.message };
     }
@@ -183,7 +193,15 @@ async function ensureReply(history, response, actions, { stillWanted }) {
 
 export async function handleUserMessage(sessionId, text, onToolEvent, context = {}) {
   const history = await getHistory(sessionId, Boolean(context.trusted));
-  history.push({ role: 'user', content: text });
+  context = { ...context, sessionKey: sessionKey(sessionId, Boolean(context.trusted)) };
+
+  // The user's own words are the only thing that can approve a final action;
+  // the model is told the outcome, it never decides it.
+  let note = '';
+  const verdict = context.trusted ? interpretReply(context.sessionKey, text) : null;
+  if (verdict?.approved) note = `\n[Sumika: the user just said yes to "${verdict.label}". You may now click it with click_in_browser confirm:true.]`;
+  else if (verdict?.denied) note = `\n[Sumika: the user declined "${verdict.label}". Do not click it.]`;
+  history.push({ role: 'user', content: text + note });
 
   // Callers who haven't proven they're the owner aren't even offered the
   // browser tools - fewer tokens, and nothing for them to try.

@@ -10,6 +10,7 @@ import { helpBus, resolveHelp } from './src/tools/helpBus.js';
 import { acceptExtensionConnection, isExtensionConnected } from './src/tools/extensionBridge.js';
 import { isTrusted } from './src/auth.js';
 import { getProfile, saveProfile, saveResume } from './src/profile.js';
+import { runJobSearch } from './src/jobSearch.js';
 
 const app = express();
 const upload = multer({ limits: { fileSize: 10 * 1024 * 1024 } });
@@ -79,7 +80,7 @@ app.get('/api/extension-status', (req, res) => {
 app.get('/api/access', (req, res) => res.json({ trusted: isTrusted(req) }));
 
 app.post('/api/chat', async (req, res) => {
-  const { sessionId = 'default', message } = req.body;
+  const { sessionId = 'default', message, tz } = req.body;
   if (!message) return res.status(400).json({ error: 'message is required' });
 
   // Only the owner (right access code, or this very machine) may use the
@@ -96,7 +97,7 @@ app.post('/api/chat', async (req, res) => {
       sid,
       message,
       (event) => broadcast({ type: 'tool_event', sessionId, name: event.name, status: event.status }),
-      { trusted }
+      { trusted, tz }
     );
     res.json(result);
   } catch (err) {
@@ -154,6 +155,33 @@ app.post('/api/profile/resume', upload.single('resume'), async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
+});
+
+// Triggered by a GitHub Actions cron (see .github/workflows/job-search.yml) at
+// 7am/10pm IST rather than an in-process timer - Render's free tier spins the
+// process down when idle, so an internal scheduler can't be trusted to fire.
+// Responds immediately and runs the (multi-minute) search in the background,
+// since Render's request proxy would otherwise time out waiting for it.
+let jobSearchRunning = false;
+
+app.post('/api/job-search/run', async (req, res) => {
+  const secret = req.get('X-Job-Search-Secret');
+  if (!process.env.JOB_SEARCH_SECRET || secret !== process.env.JOB_SEARCH_SECRET) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  if (jobSearchRunning) {
+    return res.status(409).json({ error: 'A job search run is already in progress.' });
+  }
+
+  res.status(202).json({ ok: true, message: 'Job search started.' });
+
+  jobSearchRunning = true;
+  runJobSearch({ onProgress: (line) => console.log(`[job-search] ${line}`) })
+    .then((result) => console.log('[job-search] done:', result.message))
+    .catch((err) => console.error('[job-search] failed:', err))
+    .finally(() => {
+      jobSearchRunning = false;
+    });
 });
 
 const PORT = process.env.PORT || 5175;
