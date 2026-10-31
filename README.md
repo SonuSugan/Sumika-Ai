@@ -60,8 +60,24 @@ How it behaves:
   held awake and nothing is listening otherwise.
 - It works on the page you were last on - never the Sumika tab itself - and opens a new tab
   for "open X".
-- It never types into password/card/CVV/OTP/ID fields and never clicks Submit/Apply/Buy/Pay/
-  Confirm/Delete; those are yours. Text read from pages is treated as content, not commands.
+- It never types into password/card/CVV/OTP/ID fields - you enter those. Final clicks
+  (Submit, Send, Apply, Buy, Pay, Confirm, Place order, Delete) are held until you say yes: it
+  tells you exactly what it is about to do and waits. The yes is recognised in code from your own
+  next message and bound to that one button, so neither the model nor text on a web page can
+  approve it. Text read from pages is treated as content, not commands.
+- It can fill a whole form in one step, follow links that open new tabs, press Enter/Escape,
+  go back/forward, and switch tabs.
+
+## Teaching Sumika
+
+- **Memory:** "remember that my address is..." keeps short facts (name, city, preferences) in
+  your MongoDB (`memory` collection) and puts them in every prompt, so it can fill forms without
+  asking again. Passwords, card and ID numbers are never stored. "Forget..." removes them.
+- **Routines:** "learn this routine: when I say morning check, open Gmail and Calendar and tell
+  me what's next", then just say "run my morning check".
+- **Time and timers:** "what time is it", "set a 10 minute timer for the pasta" (the timer rings
+  while the Sumika page is open).
+- Memory, routines and the browser tools all need the access code on a deployed backend.
 - Callers without the access code get a separate conversation, no browser tools, and see no
   page content on the shared WebSocket.
 - Free-tier model providers cap tokens per minute (Groq's model: 8,000), and each step of a

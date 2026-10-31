@@ -354,7 +354,12 @@ async function settle(tabId) {
 // over anything in this file). One function for every in-page action so the
 // helpers - labelling, visibility, the safety checks - exist exactly once.
 function pageAction(action, a) {
-  const FINAL = /\b(submit|apply now|pay|buy|purchase|checkout|confirm order|place order|delete account)\b/i;
+  // "Final" = the click that commits something (sends, pays, deletes). Going TO
+  // a checkout page is just navigation, so links are held only for the strong
+  // phrases; buttons, where the commit usually lives, get the wider list.
+  const FINAL_LINK = /\b(submit|pay|pay now|buy|buy now|purchase|place (?:your |my )?order|confirm (?:order|purchase|payment)|complete (?:order|purchase|payment)|delete account)\b/i;
+  const FINAL_BUTTON = /\b(submit|send|post|publish|confirm|pay|pay now|buy|buy now|purchase|place (?:your |my )?order|complete (?:order|purchase|payment)|apply now|easy apply|delete)\b/i;
+  const isFinal = (el, label) => (el.tagName === 'A' ? FINAL_LINK : FINAL_BUTTON).test(label);
   const SENSITIVE = /(card.?num|cc.?num|cc-|cvv|cvc|security.?code|one.?time|otp|ssn|social.?security|passport|aadhaar|pan.?num)/i;
   const SELECTOR = [
     'a[href]', 'button', 'input:not([type=hidden])', 'select', 'textarea', 'summary',
@@ -527,7 +532,7 @@ function pageAction(action, a) {
     // A final button is clicked only when the backend, having heard the user say
     // yes, names exactly this button - never because the model asked.
     const approved = a.allowFinal && clean(a.allowFinal).toLowerCase() === label.slice(0, 60).toLowerCase();
-    if (FINAL.test(label) && !approved) return { found: true, blocked: true, matchedText: label.slice(0, 60) };
+    if (isFinal(el, label) && !approved) return { found: true, blocked: true, matchedText: label.slice(0, 60) };
     el.scrollIntoView({ block: 'center', inline: 'center' });
     flash(el);
     // A script-made click on a target=_blank link is eaten by the popup blocker;
@@ -575,7 +580,7 @@ function pageAction(action, a) {
       return { found: Boolean(next) };
     }
     const label = labelOf(el);
-    if (FINAL.test(label)) return { found: true, blocked: true, matchedText: label.slice(0, 60) };
+    if (isFinal(el, label)) return { found: true, blocked: true, matchedText: label.slice(0, 60) };
     if (el.tagName === 'A' || el.tagName === 'BUTTON' || el.getAttribute('role') === 'button') {
       el.click();
       return { found: true };
@@ -583,7 +588,7 @@ function pageAction(action, a) {
     const form = el.form;
     if (form) {
       const button = form.querySelector('[type=submit]');
-      if (form.querySelector('input[type=password]') || FINAL.test(clean(button?.innerText || button?.value))) {
+      if (form.querySelector('input[type=password]') || FINAL_BUTTON.test(clean(button?.innerText || button?.value))) {
         return { found: true, blocked: true, matchedText: clean(button?.innerText || button?.value || 'this form') };
       }
       form.requestSubmit();
@@ -625,7 +630,7 @@ function pageAction(action, a) {
     if (a.submit) {
       const form = el.form;
       const button = form?.querySelector('[type=submit]');
-      const risky = form && (form.querySelector('input[type=password]') || FINAL.test(clean(button?.innerText || button?.value)));
+      const risky = form && (form.querySelector('input[type=password]') || FINAL_BUTTON.test(clean(button?.innerText || button?.value)));
       if (risky) {
         submitted = false;
       } else if (form) {
